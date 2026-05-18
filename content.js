@@ -4,17 +4,24 @@
   const STEP_KEY     = "wvc:step";
   const MINVOL_KEY   = "wvc:minvol";
   const MODKEY_KEY   = "wvc:modkey";
+  const REVERSE_KEY  = "wvc:reverse";
   const DISABLED_KEY = "wvc:disabled";
-  const HOST    = location.hostname.replace(/^www\./, "");
-  const VOL_KEY = "wvc:" + HOST;
+  const HOST         = location.hostname.replace(/^www\./, "");
+  const VOL_KEY      = "wvc:" + HOST;
+  const SITE_ALT_KEY = "wvc:alt:" + HOST;
+
   const DEFAULT_STEP   = 0.005;
   const DEFAULT_MINVOL = 0.0025;
   const EPS = 0.0005;
+  const UNMUTE_COOLDOWN = 2500;   // ms: don't re-unmute the same element faster than this
 
   let step = DEFAULT_STEP;
   let minVol = DEFAULT_MINVOL;
   let modKeyRequired = false;
+  let reverseWheel = false;
+  let siteAltOverride = null;
   let siteEnabled = true;
+
   let ladder = [];
   let savedVolume = null;
   let overlayEl = null;
@@ -26,6 +33,7 @@
   ["pointerdown", "mousedown", "keydown", "touchstart", "wheel"].forEach((evt) => {
     window.addEventListener(evt, markActivated, { capture: true, passive: true });
   });
+
   function canUnmute() {
     if (userActivated) return true;
     try { return !!(navigator.userActivation && navigator.userActivation.hasBeenActive); }
@@ -52,11 +60,18 @@
     window.dispatchEvent(new CustomEvent('qs-set-vol', { detail: v }));
   }
 
+  // FIX: per-element cooldown. The site (e.g. YouTube on a Mix/ad transition)
+  // re-asserts mute; unconditionally unmuting back caused an infinite
+  // volumechange <-> mute fight that froze the tab. With the cooldown we unmute
+  // a given element at most once per UNMUTE_COOLDOWN, so we stop fighting and
+  // the page settles. Reels auto-unmute still works (reels run longer than 2.5s).
   function ensureUnmuted(m) {
     if (!canUnmute() || savedVolume === null || savedVolume === 0) return;
-    if (m.muted) {
-      try { m.muted = false; } catch (e) {}
-    }
+    if (!m.muted) return;
+    const now = Date.now();
+    if (now - (m._qsLastUnmute || 0) < UNMUTE_COOLDOWN) return;
+    m._qsLastUnmute = now;
+    try { m.muted = false; } catch (e) {}
   }
 
   function applyToAll() {
@@ -68,20 +83,47 @@
     document.querySelectorAll("video, audio").forEach(ensureUnmuted);
   }
 
-  function persistVol(v) {
-    savedVolume = v;
-    chrome.storage.local.set({ [VOL_KEY]: v });
-    syncToMainWorld(v);
+  // single document-wide pass: re-broadcast the locked volume + unmute (throttled)
+  function scanAndApply() {
+    if (!siteEnabled || savedVolume == null) return;
+    syncToMainWorld(savedVolume);
+    document.querySelectorAll("video, audio").forEach(ensureUnmuted);
   }
 
+  // ---- volume responds instantly every notch; only the storage write is debounced ----
+  let saveTimer = null;
+  function persistVol(v) {
+    savedVolume = v;
+    syncToMainWorld(v);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      chrome.storage.local.set({ [VOL_KEY]: savedVolume });
+    }, 200);
+  }
+  function flushSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      if (savedVolume != null) chrome.storage.local.set({ [VOL_KEY]: savedVolume });
+    }
+  }
+  window.addEventListener("pagehide", flushSave);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushSave();
+  });
+
   chrome.storage.local.get(
-    [STEP_KEY, MINVOL_KEY, MODKEY_KEY, DISABLED_KEY, VOL_KEY],
+    [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY, SITE_ALT_KEY],
     (res) => {
       if (typeof res[STEP_KEY] === "number") step = res[STEP_KEY];
       if (typeof res[MINVOL_KEY] === "number") minVol = res[MINVOL_KEY];
       modKeyRequired = res[MODKEY_KEY] === true;
+      reverseWheel = res[REVERSE_KEY] === true;
+      if (res[SITE_ALT_KEY] !== undefined) siteAltOverride = res[SITE_ALT_KEY];
       siteEnabled = !siteOff(res[DISABLED_KEY]);
       buildLadder();
+
       if (typeof res[VOL_KEY] === "number") {
         savedVolume = res[VOL_KEY];
       }
@@ -92,9 +134,19 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     let rebuild = false;
-    if (changes[STEP_KEY]) { step = changes[STEP_KEY].newValue; rebuild = true; }
-    if (changes[MINVOL_KEY]) { minVol = changes[MINVOL_KEY].newValue; rebuild = true; }
+
+    if (changes[STEP_KEY] && typeof changes[STEP_KEY].newValue === "number") {
+      step = changes[STEP_KEY].newValue; rebuild = true;
+    }
+    if (changes[MINVOL_KEY] && typeof changes[MINVOL_KEY].newValue === "number") {
+      minVol = changes[MINVOL_KEY].newValue; rebuild = true;
+    }
     if (changes[MODKEY_KEY]) { modKeyRequired = changes[MODKEY_KEY].newValue === true; }
+    if (changes[REVERSE_KEY]) { reverseWheel = changes[REVERSE_KEY].newValue === true; }
+    if (changes[SITE_ALT_KEY]) {
+      siteAltOverride = changes[SITE_ALT_KEY].newValue ?? null;
+    }
+
     if (changes[DISABLED_KEY]) {
       siteEnabled = !siteOff(changes[DISABLED_KEY].newValue);
       applyToAll();
@@ -102,15 +154,13 @@
     if (rebuild) buildLadder();
   });
 
+  // ---- SMART MEDIA FINDER ----
   function mediaAtPoint(x, y) {
-    const medias = document.querySelectorAll("video, audio");
-    for (const m of medias) {
-      const r = m.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return m;
+    const elements = document.elementsFromPoint(x, y);
+    for (const el of elements) {
+      if (el.tagName === "VIDEO" || el.tagName === "AUDIO") return el;
     }
-    const audios = [...medias].filter((m) => m.tagName === "AUDIO");
-    return audios.length === 1 ? audios[0] : null;
+    return null;
   }
 
   function fmtPct(v) {
@@ -144,9 +194,12 @@
 
   function onWheel(e) {
     if (!siteEnabled) return;
+
+    const requiresAlt = siteAltOverride !== null ? siteAltOverride : modKeyRequired;
+    if (requiresAlt && !e.altKey) return;
+
     const media = mediaAtPoint(e.clientX, e.clientY);
     if (!media) return;
-    if (modKeyRequired && !e.altKey) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -157,7 +210,8 @@
       const d = Math.abs(ladder[i] - cur);
       if (d < best) { best = d; idx = i; }
     }
-    const dir = e.deltaY < 0 ? 1 : -1;
+    let dir = e.deltaY < 0 ? 1 : -1;
+    if (reverseWheel) dir = -dir;
     idx = Math.min(ladder.length - 1, Math.max(0, idx + dir));
     const v = ladder[idx];
 
@@ -167,55 +221,42 @@
   }
   window.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
+  // ---- SPA navigation (YouTube page change) ----
+  document.addEventListener('yt-navigate-finish', () => {
+    if (!siteEnabled || savedVolume == null) return;
+    setTimeout(scanAndApply, 500);
+  });
+
   document.addEventListener("volumechange", (e) => {
     if (!siteEnabled || savedVolume == null) return;
     const t = e.target;
     if (t.tagName !== "VIDEO" && t.tagName !== "AUDIO") return;
-    
     if (Math.abs(t.volume - savedVolume) > EPS) {
-       syncToMainWorld(savedVolume);
+      syncToMainWorld(savedVolume);
     }
     ensureUnmuted(t);
   }, true);
 
-  ["loadstart", "canplay", "play", "playing", "loadedmetadata"].forEach((evt) => {
-    document.addEventListener(evt, (e) => {
-      if (!siteEnabled || savedVolume == null) return;
-      const t = e.target;
-      if (t.tagName === "VIDEO" || t.tagName === "AUDIO") {
-         syncToMainWorld(savedVolume);
-         ensureUnmuted(t);
-      }
-    }, true);
-  });
-
-  // ---- OPTIMIZED MUTATION OBSERVER (DEBOUNCED) ----
-  let moTimer = null;
-  const mo = new MutationObserver((muts) => {
+  // ---- FIX: playback events are debounced into ONE coalesced pass.
+  // Previously each of 5 events fired syncToMainWorld separately -> a burst of
+  // querySelectorAll work during load. Now a load burst triggers one pass. ----
+  let playbackTimer = null;
+  function onPlaybackEvent() {
     if (!siteEnabled || savedVolume == null) return;
-    
-    let hasHtmlElements = false;
-    for (const mut of muts) {
-      for (const node of mut.addedNodes) {
-        if (node.nodeType === 1) { // শুধুমাত্র HTML ইলিমেন্ট চেক করবে (টেক্সট নোড ইগনোর করবে)
-          hasHtmlElements = true;
-          break;
-        }
-      }
-      if (hasHtmlElements) break;
-    }
-
-    if (hasHtmlElements) {
-      // প্রতিবার নতুন ইলিমেন্ট আসার সাথে সাথে স্ক্যান না করে, ২৫০ms অপেক্ষা করবে।
-      // এতে ইউটিউবের মতো সাইটে ব্রাউজার হ্যাং হবে না।
-      clearTimeout(moTimer);
-      moTimer = setTimeout(() => {
-        syncToMainWorld(savedVolume);
-        document.querySelectorAll("video, audio").forEach(ensureUnmuted);
-      }, 250); 
-    }
+    clearTimeout(playbackTimer);
+    playbackTimer = setTimeout(scanAndApply, 150);
+  }
+  ["loadstart", "canplay", "play", "playing", "loadedmetadata"].forEach((evt) => {
+    document.addEventListener(evt, onPlaybackEvent, true);
   });
-  
+
+  // ---- MutationObserver: O(1) callback, single debounced full scan ----
+  let moTimer = null;
+  const mo = new MutationObserver(() => {
+    if (!siteEnabled || savedVolume == null) return;
+    clearTimeout(moTimer);
+    moTimer = setTimeout(scanAndApply, 500);
+  });
   if (document.documentElement) {
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }

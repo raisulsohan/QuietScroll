@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <style>
   body {
-    width: 256px; margin: 0; padding: 16px 18px;
+    width: 260px; margin: 0; padding: 16px 18px;
     font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     background: #1e1e22; color: #e8e8ea;
   }
@@ -40,17 +40,24 @@
   .switch input:checked + .track { background: #7c5cff; }
   .switch input:checked + .track::before { transform: translateX(16px); }
   .switch input:disabled + .track { opacity: .4; cursor: not-allowed; }
+  
+  .site-block {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid #313137;
+  }
+  .site-title {
+    font-size: 11px; font-weight: 600; color: #a8a8ad; margin-bottom: 12px; letter-spacing: .02em;
+  }
+  select.styled-select {
+    background: #3a3a40; color: #e8e8ea; border: 1px solid #4a4a52; 
+    border-radius: 5px; padding: 4px 6px; font-size: 11.5px; outline: none; cursor: pointer;
+  }
   .hint {
     font-size: 11px; color: #76767c; line-height: 1.5;
-    margin-top: 15px; padding-top: 12px; border-top: 1px solid #313137;
+    margin-top: 18px; padding-top: 12px; border-top: 1px solid #313137;
   }
   .credit {
-  margin-top: 12px;
-  text-align: center;
-  font-size: 10px;
-  color: #6f6f75;
-  letter-spacing: .04em;
-}
+    margin-top: 12px; text-align: center; font-size: 10px; color: #6f6f75; letter-spacing: .04em;
+  }
 </style>
 </head>
 <body>
@@ -74,8 +81,19 @@
 
   <div class="toggle-row">
     <div>
-      <div class="label">Hold Alt to change volume</div>
-      <div class="sub">otherwise the wheel scrolls the page</div>
+      <div class="label">Reverse wheel direction</div>
+      <div class="sub">Scroll down to increase volume</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="reverse">
+      <span class="track"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="label">Global: Require Alt key</div>
+      <div class="sub">Hold Alt + Wheel to change volume</div>
     </div>
     <label class="switch">
       <input type="checkbox" id="modkey">
@@ -83,19 +101,34 @@
     </label>
   </div>
 
-  <div class="toggle-row">
-    <div>
-      <div class="label">Active on this site</div>
-      <div class="sub" id="host">&mdash;</div>
+  <div class="site-block">
+    <div class="site-title">THIS SITE: <span id="host" style="color:#fff">&mdash;</span></div>
+
+    <div class="toggle-row" style="margin-top: 0;">
+      <div>
+        <div class="label">Extension active</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="siteon" checked>
+        <span class="track"></span>
+      </label>
     </div>
-    <label class="switch">
-      <input type="checkbox" id="siteon" checked>
-      <span class="track"></span>
-    </label>
+
+    <div class="toggle-row">
+      <div>
+        <div class="label">Require Alt key here</div>
+      </div>
+      <select id="sitealt" class="styled-select">
+        <option value="default">Use Global</option>
+        <option value="true">Always</option>
+        <option value="false">Never</option>
+      </select>
+    </div>
   </div>
 
-  <div class="hint">সেটিং সব সাইটে প্রযোজ্য ও সংরক্ষিত থাকে। কোনো সাইট বন্ধ করলে সেখানে এক্সটেনশন পুরোপুরি নিষ্ক্রিয় থাকে।</div>
+  <div class="hint">সেটিং সব সাইটে প্রযোজ্য ও সংরক্ষিত থাকে। কোনো সাইট বন্ধ করলে বা Alt ওভাররাইড করলে তা শুধুমাত্র ওই সাইটেই কাজ করবে।</div>
   <div class="credit">Made by Raisul Sohan</div>
+  
   <script src="popup.js"></script>
 </body>
 </html>
