@@ -2,16 +2,56 @@
 
 Smart per-site volume control for peaceful browsing.
 
-QuietScroll is a lightweight Chrome/Edge extension that lets you control video and audio volume smoothly using your mouse wheel while remembering volume separately for each website.
+QuietScroll is a lightweight Chrome/Edge extension that lets you control the
+volume of any video or audio player with your mouse wheel — and remembers your
+preferred volume separately for every website.
 
 ## Features
 
-* Per-site volume memory
-* Ultra-low volume mode (down to 0.25%)
-* Alt + Mouse Wheel volume control
-* Volume Guard for autoplay-heavy sites
-* Works without breaking fullscreen
-* Lightweight and privacy-friendly
+* **Mouse-wheel volume control** — hover over any player and scroll to adjust the volume
+* **Per-site volume memory** — your volume is saved separately for each website
+* **Ultra-low volume** — go as quiet as 0.25%, ideal for late-night listening
+* **Adjustable step** — choose how much each scroll changes the volume (0.5%–10%)
+* **Reverse direction** — optionally flip scroll-up / scroll-down
+* **Optional Alt modifier** — require Alt to be held for volume changes (off by default), set globally or per site
+* **Per-site on/off** — disable the extension on any site you choose
+* **Volume Guard** — holds your volume steady on autoplay-heavy sites that keep re-asserting their own
+* **Fullscreen-safe** — never breaks a site's fullscreen
+* **Lightweight & private** — all settings stay on your device; nothing is sent anywhere
+
+## How It Works
+
+Hover the mouse over a video or audio player and scroll the **mouse wheel** up
+or down to change the volume. That's it — no keys needed by default.
+
+QuietScroll remembers the volume you set for each website, so the next time you
+visit, it starts where you left off.
+
+### Optional: Alt modifier
+
+If you'd rather the wheel scroll the page normally and only change volume while
+a key is held, enable **Require Alt key** in the popup. You can set this
+globally, or override it for individual sites. When enabled, use:
+
+`Alt + Mouse Wheel`
+
+## Settings
+
+Open the popup (toolbar icon) to adjust:
+
+* **Step per scroll** — volume change per wheel notch (0.5%–10%)
+* **Minimum volume** — the lowest non-zero level on the volume ladder (down to 0.25%)
+* **Reverse wheel direction** — scroll down to increase volume
+* **Global: Require Alt key** — applies to all sites
+* **This site: Extension active** — turn QuietScroll on/off for the current site
+* **This site: Require Alt key** — Use Global / Always / Never
+
+## A Note on Volume Guard
+
+While QuietScroll is active on a site, it keeps the volume locked to your
+chosen level — so the site's own volume slider may not take effect. If you want
+to use a site's native volume controls instead, turn off **Extension active**
+for that site in the popup.
 
 ## Supported Browsers
 
@@ -19,15 +59,8 @@ QuietScroll is a lightweight Chrome/Edge extension that lets you control video a
 * Microsoft Edge
 * Brave
 
-## How It Works
-
-Hover over a video or audio player and use:
-
-`Alt + Mouse Wheel`
-
-to smoothly increase or decrease volume.
-
-QuietScroll remembers your preferred volume for each website automatically.
+Requires a Chromium-based browser, version 111 or newer (QuietScroll relies on
+`MAIN`-world content scripts for the Volume Guard).
 
 ## Installation
 
