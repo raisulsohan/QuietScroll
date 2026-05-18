@@ -23,7 +23,6 @@
   // ---- user-activation tracking ----
   let userActivated = false;
   function markActivated() { userActivated = true; }
-  // রিলস স্ক্রল করার সময় মাউস হুইলকেও একটিভিটি হিসেবে ধরা হলো
   ["pointerdown", "mousedown", "keydown", "touchstart", "wheel"].forEach((evt) => {
     window.addEventListener(evt, markActivated, { capture: true, passive: true });
   });
@@ -53,7 +52,6 @@
     window.dispatchEvent(new CustomEvent('qs-set-vol', { detail: v }));
   }
 
-  // জোর করে মিউট খোলার ফাংশন
   function ensureUnmuted(m) {
     if (!canUnmute() || savedVolume === null || savedVolume === 0) return;
     if (m.muted) {
@@ -177,7 +175,6 @@
     if (Math.abs(t.volume - savedVolume) > EPS) {
        syncToMainWorld(savedVolume);
     }
-    // ওয়েবসাইট মিউট করলেও জোর করে খুলে দেওয়া হবে
     ensureUnmuted(t);
   }, true);
 
@@ -192,22 +189,30 @@
     }, true);
   });
 
+  // ---- OPTIMIZED MUTATION OBSERVER (DEBOUNCED) ----
+  let moTimer = null;
   const mo = new MutationObserver((muts) => {
     if (!siteEnabled || savedVolume == null) return;
-    let foundNewMedia = false;
+    
+    let hasHtmlElements = false;
     for (const mut of muts) {
       for (const node of mut.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.matches && node.matches("video, audio")) {
-          foundNewMedia = true;
-        } else if (node.querySelectorAll && node.querySelector("video, audio")) {
-          foundNewMedia = true;
+        if (node.nodeType === 1) { // শুধুমাত্র HTML ইলিমেন্ট চেক করবে (টেক্সট নোড ইগনোর করবে)
+          hasHtmlElements = true;
+          break;
         }
       }
+      if (hasHtmlElements) break;
     }
-    if (foundNewMedia) {
-      syncToMainWorld(savedVolume);
-      document.querySelectorAll("video, audio").forEach(ensureUnmuted);
+
+    if (hasHtmlElements) {
+      // প্রতিবার নতুন ইলিমেন্ট আসার সাথে সাথে স্ক্যান না করে, ২৫০ms অপেক্ষা করবে।
+      // এতে ইউটিউবের মতো সাইটে ব্রাউজার হ্যাং হবে না।
+      clearTimeout(moTimer);
+      moTimer = setTimeout(() => {
+        syncToMainWorld(savedVolume);
+        document.querySelectorAll("video, audio").forEach(ensureUnmuted);
+      }, 250); 
     }
   });
   
