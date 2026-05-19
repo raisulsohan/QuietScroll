@@ -26,6 +26,29 @@
   let savedVolume = null;
   let overlayEl = null;
   let hideTimer = null;
+  let mo = null;   // MutationObserver, assigned at the bottom
+
+  // ---- context-invalidation guard --------------------------------------
+  // When the extension is reloaded/updated, this old content script keeps
+  // running in the tab but its chrome.* connection is dead. Calling
+  // chrome.storage then throws "Extension context invalidated". Once we
+  // detect that, shutdown() stops the script completely so it doesn't
+  // linger as a zombie (observer/listeners still firing).
+  let dead = false;
+  function shutdown() {
+    if (dead) return;
+    dead = true;
+    try { if (mo) mo.disconnect(); } catch (e) {}
+  }
+  function extAlive() {
+    try { return !!(chrome.runtime && chrome.runtime.id); }
+    catch (e) { return false; }
+  }
+  function safeSet(obj) {
+    if (dead || !extAlive()) { shutdown(); return; }
+    try { chrome.storage.local.set(obj); }
+    catch (e) { shutdown(); }
+  }
 
   // ---- user-activation tracking ----
   let userActivated = false;
@@ -42,9 +65,13 @@
 
   function buildLadder() {
     const set = new Set([0, 1]);
-    if (minVol > EPS && minVol < 1) set.add(Math.round(minVol * 10000) / 10000);
+    if (minVol > EPS && minVol < 1) {
+      set.add(Math.round(minVol * 1000000) / 1000000);          // 0.25%
+      set.add(Math.round(minVol * 0.75 * 1000000) / 1000000);   // 0.1875%
+      set.add(Math.round(minVol * 0.5 * 1000000) / 1000000);    // 0.125%
+    }
     for (let i = 1; ; i++) {
-      const x = Math.round(i * step * 10000) / 10000;
+      const x = Math.round(i * step * 1000000) / 1000000;
       if (x >= 1) break;
       set.add(x);
     }
@@ -75,6 +102,7 @@
   }
 
   function applyToAll() {
+    if (dead) return;
     if (!siteEnabled || savedVolume == null) {
       syncToMainWorld(null);
       return;
@@ -85,7 +113,7 @@
 
   // single document-wide pass: re-broadcast the locked volume + unmute (throttled)
   function scanAndApply() {
-    if (!siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || savedVolume == null) return;
     syncToMainWorld(savedVolume);
     document.querySelectorAll("video, audio").forEach(ensureUnmuted);
   }
@@ -98,14 +126,14 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      chrome.storage.local.set({ [VOL_KEY]: savedVolume });
+      safeSet({ [VOL_KEY]: savedVolume });
     }, 200);
   }
   function flushSave() {
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
-      if (savedVolume != null) chrome.storage.local.set({ [VOL_KEY]: savedVolume });
+      if (savedVolume != null) safeSet({ [VOL_KEY]: savedVolume });
     }
   }
   window.addEventListener("pagehide", flushSave);
@@ -113,26 +141,29 @@
     if (document.visibilityState === "hidden") flushSave();
   });
 
-  chrome.storage.local.get(
-    [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY, SITE_ALT_KEY],
-    (res) => {
-      if (typeof res[STEP_KEY] === "number") step = res[STEP_KEY];
-      if (typeof res[MINVOL_KEY] === "number") minVol = res[MINVOL_KEY];
-      modKeyRequired = res[MODKEY_KEY] === true;
-      reverseWheel = res[REVERSE_KEY] === true;
-      if (res[SITE_ALT_KEY] !== undefined) siteAltOverride = res[SITE_ALT_KEY];
-      siteEnabled = !siteOff(res[DISABLED_KEY]);
-      buildLadder();
+  try {
+    chrome.storage.local.get(
+      [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY, SITE_ALT_KEY],
+      (res) => {
+        if (chrome.runtime.lastError || !res) return;
+        if (typeof res[STEP_KEY] === "number") step = res[STEP_KEY];
+        if (typeof res[MINVOL_KEY] === "number") minVol = res[MINVOL_KEY];
+        modKeyRequired = res[MODKEY_KEY] === true;
+        reverseWheel = res[REVERSE_KEY] === true;
+        if (res[SITE_ALT_KEY] !== undefined) siteAltOverride = res[SITE_ALT_KEY];
+        siteEnabled = !siteOff(res[DISABLED_KEY]);
+        buildLadder();
 
-      if (typeof res[VOL_KEY] === "number") {
-        savedVolume = res[VOL_KEY];
+        if (typeof res[VOL_KEY] === "number") {
+          savedVolume = res[VOL_KEY];
+        }
+        applyToAll();
       }
-      applyToAll();
-    }
-  );
+    );
+  } catch (e) { shutdown(); }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
+    if (dead || area !== "local") return;
     let rebuild = false;
 
     if (changes[STEP_KEY] && typeof changes[STEP_KEY].newValue === "number") {
@@ -167,7 +198,9 @@
     const p = v * 100;
     if (Math.round(p) === p) return String(p);
     if (Math.round(p * 10) === p * 10) return p.toFixed(1);
-    return p.toFixed(2);
+    if (Math.round(p * 100) === p * 100) return p.toFixed(2);
+    if (Math.round(p * 1000) === p * 1000) return p.toFixed(3);
+    return p.toFixed(4);
   }
 
   function showOverlay(v) {
@@ -193,7 +226,7 @@
   }
 
   function onWheel(e) {
-    if (!siteEnabled) return;
+    if (dead || !siteEnabled) return;
 
     const requiresAlt = siteAltOverride !== null ? siteAltOverride : modKeyRequired;
     if (requiresAlt && !e.altKey) return;
@@ -223,12 +256,12 @@
 
   // ---- SPA navigation (YouTube page change) ----
   document.addEventListener('yt-navigate-finish', () => {
-    if (!siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || savedVolume == null) return;
     setTimeout(scanAndApply, 500);
   });
 
   document.addEventListener("volumechange", (e) => {
-    if (!siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || savedVolume == null) return;
     const t = e.target;
     if (t.tagName !== "VIDEO" && t.tagName !== "AUDIO") return;
     if (Math.abs(t.volume - savedVolume) > EPS) {
@@ -242,7 +275,7 @@
   // querySelectorAll work during load. Now a load burst triggers one pass. ----
   let playbackTimer = null;
   function onPlaybackEvent() {
-    if (!siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || savedVolume == null) return;
     clearTimeout(playbackTimer);
     playbackTimer = setTimeout(scanAndApply, 150);
   }
@@ -252,8 +285,8 @@
 
   // ---- MutationObserver: O(1) callback, single debounced full scan ----
   let moTimer = null;
-  const mo = new MutationObserver(() => {
-    if (!siteEnabled || savedVolume == null) return;
+  mo = new MutationObserver(() => {
+    if (dead || !siteEnabled || savedVolume == null) return;
     clearTimeout(moTimer);
     moTimer = setTimeout(scanAndApply, 500);
   });
