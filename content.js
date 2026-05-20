@@ -63,6 +63,19 @@
     catch (e) { return false; }
   }
 
+  // ---- consume Alt-up after Alt+wheel, so Chrome doesn't focus the menu bar
+  let altWasUsed = false;
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Alt") altWasUsed = false;
+  }, true);
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "Alt" && altWasUsed) {
+      e.preventDefault();
+      e.stopPropagation();
+      altWasUsed = false;
+    }
+  }, true);
+
   function buildLadder() {
     const set = new Set([0, 1]);
     if (minVol > EPS && minVol < 1) {
@@ -236,6 +249,7 @@
 
     e.preventDefault();
     e.stopPropagation();
+    if (e.altKey) altWasUsed = true;
 
     const cur = savedVolume !== null ? savedVolume : (media.volume || 0);
     let idx = 0, best = Infinity;
