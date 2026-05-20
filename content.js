@@ -208,7 +208,9 @@
   }
 
   function fmtPct(v) {
-    const p = v * 100;
+    // Kill float dust first (e.g. 0.29*100 = 28.999999999999996)
+    // by rounding to 4 decimal places — the most we ever display.
+    const p = Math.round(v * 1000000) / 10000;
     if (Math.round(p) === p) return String(p);
     if (Math.round(p * 10) === p * 10) return p.toFixed(1);
     if (Math.round(p * 100) === p * 100) return p.toFixed(2);
@@ -216,15 +218,15 @@
     return p.toFixed(4);
   }
 
-  function showOverlay(v) {
+  function showOverlay(v, x, y) {
     const host = document.fullscreenElement || document.body;
     if (!host) return;
     if (!overlayEl || overlayEl.parentNode !== host) {
       if (overlayEl && overlayEl.parentNode) overlayEl.parentNode.removeChild(overlayEl);
       overlayEl = document.createElement("div");
       overlayEl.style.cssText = [
-        "position:fixed", "z-index:2147483647", "top:24px", "left:50%",
-        "transform:translateX(-50%)", "padding:8px 18px",
+        "position:fixed", "z-index:2147483647",
+        "padding:8px 18px",
         "background:rgba(0,0,0,.82)", "color:#fff",
         "font:600 15px/1 -apple-system,Segoe UI,Roboto,sans-serif",
         "border-radius:8px", "pointer-events:none",
@@ -233,6 +235,29 @@
       host.appendChild(overlayEl);
     }
     overlayEl.textContent = (v === 0 ? "\uD83D\uDD07 " : "\uD83D\uDD0A ") + fmtPct(v) + "%";
+
+    // ---- mouse-relative positioning ----
+    const margin = 12;
+    const gap = 18;
+    const w = overlayEl.offsetWidth || 90;
+    const h = overlayEl.offsetHeight || 32;
+    // default: above cursor, horizontally centered
+    let left = x;
+    let top = y - gap;
+    let transform = "translate(-50%, -100%)";
+    // flip below if too close to viewport top
+    if (top - h < margin) {
+      top = y + gap;
+      transform = "translate(-50%, 0)";
+    }
+    // clamp horizontally so the box stays inside the viewport
+    const halfW = w / 2;
+    if (left - halfW < margin) left = halfW + margin;
+    if (left + halfW > window.innerWidth - margin) left = window.innerWidth - halfW - margin;
+    overlayEl.style.left = left + "px";
+    overlayEl.style.top = top + "px";
+    overlayEl.style.transform = transform;
+
     requestAnimationFrame(() => { if (overlayEl) overlayEl.style.opacity = "1"; });
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => { if (overlayEl) overlayEl.style.opacity = "0"; }, 900);
@@ -264,7 +289,7 @@
 
     persistVol(v);
     ensureUnmuted(media);
-    showOverlay(v);
+    showOverlay(v, e.clientX, e.clientY);
   }
   window.addEventListener("wheel", onWheel, { passive: false, capture: true });
 
