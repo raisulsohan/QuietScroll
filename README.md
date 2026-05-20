@@ -6,6 +6,11 @@ QuietScroll is a lightweight Chrome/Edge extension that lets you control the
 volume of any video or audio player with your mouse wheel — and remembers your
 preferred volume separately for every website.
 
+document that pure Web-Audio-API players (Spotify,
+  SoundCloud) are not supported — they route audio outside
+  <video>/<audio> entirely; users fall back to the site's own
+  volume control there.
+
 ## Features
 
 * **Mouse-wheel volume control** — hover over any player and scroll to adjust the volume
