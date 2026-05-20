@@ -207,6 +207,20 @@
     return null;
   }
 
+  // fallback for audio-only sites (YouTube Music, Suno, etc) where the
+  // media element exists in DOM but isn't where the cursor is. returns
+  // the first playing media, or any media with a loaded source.
+  function findActiveMedia() {
+    const all = document.querySelectorAll("video, audio");
+    for (const m of all) {
+      if (!m.paused && !m.ended && m.readyState > 0) return m;
+    }
+    for (const m of all) {
+      if (m.readyState > 0 || m.src || m.currentSrc) return m;
+    }
+    return null;
+  }
+
   function fmtPct(v) {
     // Kill float dust first (e.g. 0.29*100 = 28.999999999999996)
     // by rounding to 4 decimal places — the most we ever display.
@@ -269,7 +283,10 @@
     const requiresAlt = siteAltOverride !== null ? siteAltOverride : modKeyRequired;
     if (requiresAlt && !e.altKey) return;
 
-    const media = mediaAtPoint(e.clientX, e.clientY);
+    let media = mediaAtPoint(e.clientX, e.clientY);
+    // Alt held + no media at cursor → fall back to any active media on the page
+    // (audio-only sites where the media element is hidden)
+    if (!media && e.altKey) media = findActiveMedia();
     if (!media) return;
 
     e.preventDefault();
