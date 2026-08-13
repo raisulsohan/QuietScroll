@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "QuietScroll",
-  "version": "1.5",
-  "description": "Smart per-site volume control for peaceful browsing. Ultra-low night listening, volume guard, and smooth Alt + Wheel control. Made by Raisul Sohan.",
+  "version": "1.6",
+  "description": "Smart per-site volume control for peaceful browsing. Night mode, quick presets, ultra-low night listening, volume guard, and smooth Alt + Wheel control. Made by Raisul Sohan.",
   "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html",

@@ -16,6 +16,8 @@ document that pure Web-Audio-API players (Spotify,
 * **Mouse-wheel volume control** — hover over any player and scroll to adjust the volume
 * **Per-site volume memory** — your volume is saved separately for each website
 * **Ultra-low volume** — go as quiet as 0.25%, ideal for late-night listening
+* **Night mode** — one switch drops every site to a single quiet level, and switches back
+* **Quick presets** — jump straight to 0.125% / 0.1875% / 0.25% / 0.5% / 1% from the popup
 * **Adjustable step** — choose how much each scroll changes the volume (0.5%–10%)
 * **Reverse direction** — optionally flip scroll-up / scroll-down
 * **Optional Alt modifier** — require Alt to be held for volume changes (off by default), set globally or per site
@@ -40,6 +42,27 @@ globally, or override it for individual sites. When enabled, use:
 
 `Alt + Mouse Wheel`
 
+## Night Mode
+
+Flip **Night mode** in the popup and every site drops to one quiet level — no
+need to visit each site and scroll it down. Flip it back and each site returns
+to its own remembered volume.
+
+* Your per-site volumes are never overwritten while night mode is on, so
+  switching it off restores them exactly
+* Scrolling the wheel during night mode tunes the **night level** itself, and
+  the overlay shows a 🌙 so you can tell which one you are changing
+* The quick presets set the night level while night mode is on, and the current
+  site's volume otherwise
+* Sites you turned off under **Extension active** stay untouched
+
+## Quick Presets
+
+The popup has five one-click levels, all in the ultra-low range where scrolling
+notch by notch is slowest: **0.125%**, **0.1875%**, **0.25%**, **0.5%** and
+**1%**. The buttons show bare numbers to fit the popup width; hover one to see
+its full value.
+
 ## Settings
 
 Open the popup (toolbar icon) to adjust:
@@ -48,6 +71,8 @@ Open the popup (toolbar icon) to adjust:
 * **Minimum volume** — the lowest non-zero level on the volume ladder (down to 0.25%)
 * **Reverse wheel direction** — scroll down to increase volume
 * **Global: Require Alt key** — applies to all sites
+* **Night mode** — hold every site at one quiet level
+* **Quick presets** — 0.125% / 0.1875% / 0.25% / 0.5% / 1%
 * **This site: Extension active** — turn QuietScroll on/off for the current site
 * **This site: Require Alt key** — Use Global / Always / Never
 

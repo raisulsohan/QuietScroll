@@ -51,6 +51,18 @@
     background: #3a3a40; color: #e8e8ea; border: 1px solid #4a4a52; 
     border-radius: 5px; padding: 4px 6px; font-size: 11.5px; outline: none; cursor: pointer;
   }
+  .presets { display: flex; gap: 4px; margin-top: 9px; }
+  .presets button {
+    flex: 1; min-width: 0; padding: 6px 1px;
+    background: #3a3a40; color: #e8e8ea; border: 1px solid #4a4a52;
+    border-radius: 5px; font-size: 10.5px; font-family: inherit;
+    white-space: nowrap; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .presets button:hover { background: #46464e; }
+  .presets button.on { background: #7c5cff; border-color: #7c5cff; color: #fff; }
+  .presets button:disabled { opacity: .4; cursor: not-allowed; }
+  .night-on .value { color: #b9a6ff; }
   .hint {
     font-size: 11px; color: #76767c; line-height: 1.5;
     margin-top: 18px; padding-top: 12px; border-top: 1px solid #313137;
@@ -100,6 +112,36 @@
       <input type="checkbox" id="modkey">
       <span class="track"></span>
     </label>
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="label">🌙 Night mode</div>
+      <div class="sub">Holds every site at one quiet level</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="night">
+      <span class="track"></span>
+    </label>
+  </div>
+
+  <div class="site-block" id="quickBlock">
+    <div class="site-title"><span id="quickTitle">VOLUME</span>: <span id="quickScope" style="color:#fff">&mdash;</span></div>
+
+    <div class="row" style="margin-bottom: 0;">
+      <span class="label" id="quickHint">Or scroll on any player</span>
+      <span class="value" id="quickVal">&mdash;</span>
+    </div>
+
+    <!-- labels carry no % sign: "0.1875%" is wider than the 41px button -->
+    <div class="presets" id="presets">
+      <button data-p="0.00125">0.125</button>
+      <button data-p="0.001875">0.1875</button>
+      <button data-p="0.0025">0.25</button>
+      <button data-p="0.005">0.5</button>
+      <button data-p="0.01">1</button>
+    </div>
+    <div class="sub" style="text-align: center; margin-top: 5px;">levels in %</div>
   </div>
 
   <div class="site-block">

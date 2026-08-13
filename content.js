@@ -6,12 +6,15 @@
   const MODKEY_KEY   = "wvc:modkey";
   const REVERSE_KEY  = "wvc:reverse";
   const DISABLED_KEY = "wvc:disabled";
+  const NIGHT_KEY    = "wvc:night";      // global on/off
+  const NIGHTVOL_KEY = "wvc:nightvol";   // the level night mode holds
   const HOST         = location.hostname.replace(/^www\./, "");
   const VOL_KEY      = "wvc:" + HOST;
   const SITE_ALT_KEY = "wvc:alt:" + HOST;
 
-  const DEFAULT_STEP   = 0.005;
-  const DEFAULT_MINVOL = 0.0025;
+  const DEFAULT_STEP     = 0.005;
+  const DEFAULT_MINVOL   = 0.0025;
+  const DEFAULT_NIGHTVOL = 0.01;
   const EPS = 0.0005;
   const UNMUTE_COOLDOWN = 2500;   // ms: slow rate once an element's burst is spent
   const UNMUTE_BURST    = 3;      // unmute attempts allowed per playback session
@@ -23,6 +26,8 @@
   let reverseWheel = false;
   let siteAltOverride = null;
   let siteEnabled = true;
+  let nightOn = false;
+  let nightVol = DEFAULT_NIGHTVOL;
 
   let ladder = [];
   let savedVolume = null;
@@ -53,16 +58,26 @@
   }
 
   // ---- user-activation tracking ----
+  // FIX: "wheel" used to be in this list, but scrolling does NOT grant user
+  // activation in Chrome -- the activation-triggering events are keydown,
+  // mousedown, pointerdown, pointerup, touchend and click. On a
+  // scroll-only visit (x.com timeline) the flag said "activated", we unmuted
+  // an autoplaying video, and Chrome refused and PAUSED it instead:
+  // "Unmuting failed and the element was paused instead...". So the list only
+  // holds real activation events now, and navigator.userActivation -- the
+  // authority Chrome itself uses -- is consulted first.
   let userActivated = false;
-  function markActivated() { userActivated = true; }
-  ["pointerdown", "mousedown", "keydown", "touchstart", "wheel"].forEach((evt) => {
+  let activationEpoch = 0;
+  function markActivated() { userActivated = true; activationEpoch++; }
+  ["pointerdown", "mousedown", "keydown", "touchend", "click"].forEach((evt) => {
     window.addEventListener(evt, markActivated, { capture: true, passive: true });
   });
 
   function canUnmute() {
-    if (userActivated) return true;
-    try { return !!(navigator.userActivation && navigator.userActivation.hasBeenActive); }
-    catch (e) { return false; }
+    try {
+      if (navigator.userActivation) return !!navigator.userActivation.hasBeenActive;
+    } catch (e) {}
+    return userActivated;
   }
 
   // ---- consume Alt-up after Alt+wheel, so Chrome doesn't focus the menu bar
@@ -112,6 +127,17 @@
     window.dispatchEvent(new CustomEvent('qs-set-vol', { detail: v }));
   }
 
+  // ---- night mode -------------------------------------------------------
+  // While it is on, one global level overrides every site's own volume. The
+  // per-site values are never rewritten, so switching night mode off restores
+  // each site exactly where it was — no backup bookkeeping, nothing to lose.
+  // Night mode also applies on sites that have no saved volume yet, which is
+  // the point: at night everything is quiet, not just the sites you've tuned.
+  function effVol() {
+    if (nightOn) return nightVol;
+    return savedVolume;
+  }
+
   // Per-element unmute budget. The site (e.g. YouTube on a Mix/ad transition)
   // re-asserts mute; unconditionally unmuting back caused an infinite
   // volumechange <-> mute fight that froze the tab.
@@ -127,8 +153,12 @@
   // costs us a few attempts, never an unbounded fight. Each play/playing hands
   // the element a fresh burst (see the reset below).
   function ensureUnmuted(m) {
-    if (!canUnmute() || savedVolume === null || savedVolume === 0) return;
+    const target = effVol();
+    if (!canUnmute() || target === null || target === 0) return;
     if (!m.muted) return;
+    // Chrome already refused this element since the last real interaction;
+    // asking again only repeats the error and re-pauses the video.
+    if (m._qsBlockedAt === activationEpoch) return;
 
     const now = Date.now();
     const since = now - (m._qsLastUnmute || 0);
@@ -145,9 +175,28 @@
 
     m._qsLastUnmute = now;
     m._qsUnmuteTries = tries + 1;
+    const wasPlaying = !m.paused;
     try { m.muted = false; } catch (e) {}
     // verify it stuck — the site may re-assert mute a moment later
     scheduleUnmuteRetry(m);
+    if (wasPlaying) verifyUnmute(m);
+  }
+
+  // Even with the activation check above, Chrome can still refuse an unmute
+  // (an iframe with no activation of its own, a site with low media
+  // engagement). Its refusal pauses the element, which is worse than leaving it
+  // muted — so if playback stopped on the very next task, undo our change and
+  // put the element back the way we found it: playing, muted.
+  function verifyUnmute(m) {
+    setTimeout(() => {
+      if (dead || !m.paused || m.ended) return;
+      m._qsBlockedAt = activationEpoch;
+      try { m.muted = true; } catch (e) {}
+      try {
+        const p = m.play();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {}
+    }, 0);
   }
 
   function scheduleUnmuteRetry(m) {
@@ -161,37 +210,51 @@
 
   function applyToAll() {
     if (dead) return;
-    if (!siteEnabled || savedVolume == null) {
+    const v = effVol();
+    if (!siteEnabled || v == null) {
       syncToMainWorld(null);
       return;
     }
-    syncToMainWorld(savedVolume);
+    syncToMainWorld(v);
     document.querySelectorAll("video, audio").forEach(ensureUnmuted);
   }
 
   // single document-wide pass: re-broadcast the locked volume + unmute (throttled)
   function scanAndApply() {
-    if (dead || !siteEnabled || savedVolume == null) return;
-    syncToMainWorld(savedVolume);
+    const v = effVol();
+    if (dead || !siteEnabled || v == null) return;
+    syncToMainWorld(v);
     document.querySelectorAll("video, audio").forEach(ensureUnmuted);
   }
 
   // ---- volume responds instantly every notch; only the storage write is debounced ----
+  // The wheel writes whatever is currently in effect: the night level while
+  // night mode is on, this site's own volume otherwise. So scrolling during
+  // night mode tunes the night level instead of silently editing a site value
+  // that isn't even being applied.
   let saveTimer = null;
+  function writeVol() {
+    if (nightOn) {
+      if (nightVol != null) safeSet({ [NIGHTVOL_KEY]: nightVol });
+    } else if (savedVolume != null) {
+      safeSet({ [VOL_KEY]: savedVolume });
+    }
+  }
   function persistVol(v) {
-    savedVolume = v;
+    if (nightOn) nightVol = v;
+    else savedVolume = v;
     syncToMainWorld(v);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      safeSet({ [VOL_KEY]: savedVolume });
+      writeVol();
     }, 200);
   }
   function flushSave() {
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
-      if (savedVolume != null) safeSet({ [VOL_KEY]: savedVolume });
+      writeVol();
     }
   }
   window.addEventListener("pagehide", flushSave);
@@ -201,7 +264,8 @@
 
   try {
     chrome.storage.local.get(
-      [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY, SITE_ALT_KEY],
+      [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY,
+       SITE_ALT_KEY, NIGHT_KEY, NIGHTVOL_KEY],
       (res) => {
         if (chrome.runtime.lastError || !res) return;
         if (typeof res[STEP_KEY] === "number") step = res[STEP_KEY];
@@ -210,6 +274,8 @@
         reverseWheel = res[REVERSE_KEY] === true;
         if (res[SITE_ALT_KEY] !== undefined) siteAltOverride = res[SITE_ALT_KEY];
         siteEnabled = !siteOff(res[DISABLED_KEY]);
+        nightOn = res[NIGHT_KEY] === true;
+        if (typeof res[NIGHTVOL_KEY] === "number") nightVol = res[NIGHTVOL_KEY];
         buildLadder();
 
         if (typeof res[VOL_KEY] === "number") {
@@ -236,10 +302,27 @@
       siteAltOverride = changes[SITE_ALT_KEY].newValue ?? null;
     }
 
+    let reapply = false;
     if (changes[DISABLED_KEY]) {
       siteEnabled = !siteOff(changes[DISABLED_KEY].newValue);
-      applyToAll();
+      reapply = true;
     }
+    // night mode + the popup's quick presets reach us through storage, so both
+    // take effect in open tabs without a reload
+    if (changes[NIGHT_KEY]) {
+      nightOn = changes[NIGHT_KEY].newValue === true;
+      reapply = true;
+    }
+    if (changes[NIGHTVOL_KEY] && typeof changes[NIGHTVOL_KEY].newValue === "number") {
+      nightVol = changes[NIGHTVOL_KEY].newValue;
+      if (nightOn) reapply = true;
+    }
+    if (changes[VOL_KEY] && typeof changes[VOL_KEY].newValue === "number") {
+      savedVolume = changes[VOL_KEY].newValue;
+      if (!nightOn) reapply = true;
+    }
+
+    if (reapply) applyToAll();
     if (rebuild) buildLadder();
   });
 
@@ -293,7 +376,10 @@
       ].join(";");
       host.appendChild(overlayEl);
     }
-    overlayEl.textContent = (v === 0 ? "\uD83D\uDD07 " : "\uD83D\uDD0A ") + fmtPct(v) + "%";
+    // \uD83C\uDF19 while night mode holds the level, so it is obvious that the wheel is
+    // tuning the global night level and not just this site
+    const icon = v === 0 ? "\uD83D\uDD07" : (nightOn ? "\uD83C\uDF19" : "\uD83D\uDD0A");
+    overlayEl.textContent = icon + " " + fmtPct(v) + "%";
 
     // ---- mouse-relative positioning ----
     const margin = 12;
@@ -382,7 +468,8 @@
       }
     }
 
-    const cur = savedVolume !== null ? savedVolume : (media.volume || 0);
+    const held = effVol();
+    const cur = held !== null ? held : (media.volume || 0);
     let idx = 0, best = Infinity;
     for (let i = 0; i < ladder.length; i++) {
       const d = Math.abs(ladder[i] - cur);
@@ -401,16 +488,17 @@
 
   // ---- SPA navigation (YouTube page change) ----
   document.addEventListener('yt-navigate-finish', () => {
-    if (dead || !siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || effVol() == null) return;
     setTimeout(scanAndApply, 500);
   });
 
   document.addEventListener("volumechange", (e) => {
-    if (dead || !siteEnabled || savedVolume == null) return;
+    const target = effVol();
+    if (dead || !siteEnabled || target == null) return;
     const t = e.target;
     if (t.tagName !== "VIDEO" && t.tagName !== "AUDIO") return;
-    if (Math.abs(t.volume - savedVolume) > EPS) {
-      syncToMainWorld(savedVolume);
+    if (Math.abs(t.volume - target) > EPS) {
+      syncToMainWorld(target);
     }
     ensureUnmuted(t);
   }, true);
@@ -420,7 +508,7 @@
   // querySelectorAll work during load. Now a load burst triggers one pass. ----
   let playbackTimer = null;
   function onPlaybackEvent() {
-    if (dead || !siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || effVol() == null) return;
     clearTimeout(playbackTimer);
     playbackTimer = setTimeout(scanAndApply, 150);
   }
@@ -441,7 +529,7 @@
   // ---- MutationObserver: O(1) callback, single debounced full scan ----
   let moTimer = null;
   mo = new MutationObserver(() => {
-    if (dead || !siteEnabled || savedVolume == null) return;
+    if (dead || !siteEnabled || effVol() == null) return;
     clearTimeout(moTimer);
     moTimer = setTimeout(scanAndApply, 500);
   });
