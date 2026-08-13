@@ -13,7 +13,9 @@
   const DEFAULT_STEP   = 0.005;
   const DEFAULT_MINVOL = 0.0025;
   const EPS = 0.0005;
-  const UNMUTE_COOLDOWN = 2500;   // ms: don't re-unmute the same element faster than this
+  const UNMUTE_COOLDOWN = 2500;   // ms: slow rate once an element's burst is spent
+  const UNMUTE_BURST    = 3;      // unmute attempts allowed per playback session
+  const UNMUTE_RETRY    = 300;    // ms between attempts inside a burst
 
   let step = DEFAULT_STEP;
   let minVol = DEFAULT_MINVOL;
@@ -64,9 +66,19 @@
   }
 
   // ---- consume Alt-up after Alt+wheel, so Chrome doesn't focus the menu bar
+  // FIX: Chrome auto-repeats keydown while Alt is held. The old code cleared
+  // altWasUsed on every keydown, so a repeat firing after the wheel wiped the
+  // flag and keyup stopped suppressing the menu-bar focus. Only a fresh press
+  // (e.repeat === false) starts a new Alt gesture.
   let altWasUsed = false;
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Alt") altWasUsed = false;
+    if (e.key !== "Alt") return;
+    if (e.repeat) {
+      // mid-gesture repeat: keep the flag, and keep Chrome from arming the menu
+      if (altWasUsed) e.preventDefault();
+      return;
+    }
+    altWasUsed = false;
   }, true);
   window.addEventListener("keyup", (e) => {
     if (e.key === "Alt" && altWasUsed) {
@@ -100,18 +112,51 @@
     window.dispatchEvent(new CustomEvent('qs-set-vol', { detail: v }));
   }
 
-  // FIX: per-element cooldown. The site (e.g. YouTube on a Mix/ad transition)
+  // Per-element unmute budget. The site (e.g. YouTube on a Mix/ad transition)
   // re-asserts mute; unconditionally unmuting back caused an infinite
-  // volumechange <-> mute fight that froze the tab. With the cooldown we unmute
-  // a given element at most once per UNMUTE_COOLDOWN, so we stop fighting and
-  // the page settles. Reels auto-unmute still works (reels run longer than 2.5s).
+  // volumechange <-> mute fight that froze the tab.
+  //
+  // A flat cooldown stopped the freeze but lost the first round every time: on
+  // a Facebook feed reel we unmute at ~150ms, Facebook re-mutes at ~200ms, and
+  // the cooldown then blocked every retry — so the first hover played silent
+  // and only a second hover (past the cooldown) got sound.
+  //
+  // So the budget is a bounded burst instead: UNMUTE_BURST attempts spaced
+  // UNMUTE_RETRY apart, which wins that exchange on the second attempt, then a
+  // fallback to one attempt per UNMUTE_COOLDOWN. A site that insists on mute
+  // costs us a few attempts, never an unbounded fight. Each play/playing hands
+  // the element a fresh burst (see the reset below).
   function ensureUnmuted(m) {
     if (!canUnmute() || savedVolume === null || savedVolume === 0) return;
     if (!m.muted) return;
+
     const now = Date.now();
-    if (now - (m._qsLastUnmute || 0) < UNMUTE_COOLDOWN) return;
+    const since = now - (m._qsLastUnmute || 0);
+    const tries = m._qsUnmuteTries || 0;
+
+    if (tries >= UNMUTE_BURST) {
+      // burst spent: back to the slow, freeze-proof rate. No retry is armed
+      // here, so the chain ends and only a fresh event can wake it up.
+      if (since < UNMUTE_COOLDOWN) return;
+    } else if (since < UNMUTE_RETRY) {
+      scheduleUnmuteRetry(m);
+      return;
+    }
+
     m._qsLastUnmute = now;
+    m._qsUnmuteTries = tries + 1;
     try { m.muted = false; } catch (e) {}
+    // verify it stuck — the site may re-assert mute a moment later
+    scheduleUnmuteRetry(m);
+  }
+
+  function scheduleUnmuteRetry(m) {
+    if (m._qsRetryTimer) return;
+    m._qsRetryTimer = setTimeout(() => {
+      m._qsRetryTimer = null;
+      if (dead || !siteEnabled) return;
+      if (m.muted) ensureUnmuted(m);
+    }, UNMUTE_RETRY);
   }
 
   function applyToAll() {
@@ -277,6 +322,43 @@
     hideTimer = setTimeout(() => { if (overlayEl) overlayEl.style.opacity = "0"; }, 900);
   }
 
+  // ---- blur-pause safety net --------------------------------------------
+  // Some sites (Facebook) pause playback as soon as the page loses focus. If
+  // the Alt suppression above ever fails to hold — other extensions, a browser
+  // build that arms the menu on keydown — the video would stop mid-scroll and
+  // need a manual click. So after an Alt+wheel change on media that was
+  // playing, a pause arriving within RESUME_WINDOW is treated as not the
+  // user's doing and undone. A real click/keypress after the scroll cancels
+  // the guard, so pausing by hand still works.
+  const RESUME_WINDOW = 1500;
+  let resumeTarget = null;
+  let resumeUntil = 0;
+  let resumeArmedAt = 0;
+  let lastUserInputAt = 0;
+
+  ["pointerdown", "mousedown", "touchstart"].forEach((evt) => {
+    window.addEventListener(evt, () => { lastUserInputAt = Date.now(); },
+      { capture: true, passive: true });
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Alt") lastUserInputAt = Date.now();
+  }, { capture: true, passive: true });
+
+  document.addEventListener("pause", (e) => {
+    if (dead || !siteEnabled) return;
+    const t = e.target;
+    if (t !== resumeTarget || t.ended) return;
+    if (Date.now() > resumeUntil || lastUserInputAt > resumeArmedAt) {
+      resumeTarget = null;
+      return;
+    }
+    resumeTarget = null;
+    try {
+      const p = t.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (err) {}
+  }, true);
+
   function onWheel(e) {
     if (dead || !siteEnabled) return;
 
@@ -291,7 +373,14 @@
 
     e.preventDefault();
     e.stopPropagation();
-    if (e.altKey) altWasUsed = true;
+    if (e.altKey) {
+      altWasUsed = true;
+      if (!media.paused && !media.ended) {
+        resumeTarget = media;
+        resumeArmedAt = Date.now();
+        resumeUntil = resumeArmedAt + RESUME_WINDOW;
+      }
+    }
 
     const cur = savedVolume !== null ? savedVolume : (media.volume || 0);
     let idx = 0, best = Infinity;
@@ -337,6 +426,16 @@
   }
   ["loadstart", "canplay", "play", "playing", "loadedmetadata"].forEach((evt) => {
     document.addEventListener(evt, onPlaybackEvent, true);
+  });
+
+  // Each new playback session gets a fresh unmute burst, so a feed preview that
+  // is hovered again — or a reel the site swapped in — starts from a clean
+  // budget instead of inheriting the slow rate from the previous one.
+  ["play", "playing"].forEach((evt) => {
+    document.addEventListener(evt, (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "VIDEO" || t.tagName === "AUDIO")) t._qsUnmuteTries = 0;
+    }, true);
   });
 
   // ---- MutationObserver: O(1) callback, single debounced full scan ----
