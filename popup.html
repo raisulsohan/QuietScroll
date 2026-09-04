@@ -47,15 +47,11 @@
   .site-title {
     font-size: 11px; font-weight: 600; color: #a8a8ad; margin-bottom: 12px; letter-spacing: .02em;
   }
-  select.styled-select {
-    background: #3a3a40; color: #e8e8ea; border: 1px solid #4a4a52; 
-    border-radius: 5px; padding: 4px 6px; font-size: 11.5px; outline: none; cursor: pointer;
-  }
   .presets { display: flex; gap: 4px; margin-top: 9px; }
   .presets button {
     flex: 1; min-width: 0; padding: 6px 1px;
     background: #3a3a40; color: #e8e8ea; border: 1px solid #4a4a52;
-    border-radius: 5px; font-size: 10.5px; font-family: inherit;
+    border-radius: 5px; font-size: 9.5px; font-family: inherit;
     white-space: nowrap; cursor: pointer;
     transition: background .15s, border-color .15s;
   }
@@ -70,6 +66,8 @@
   .credit {
     margin-top: 12px; text-align: center; font-size: 10px; color: #6f6f75; letter-spacing: .04em;
   }
+  .credit a { color: #9b8aff; text-decoration: none; }
+  .credit a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -102,18 +100,6 @@
       <span class="track"></span>
     </label>
   </div>
-
-  <div class="toggle-row">
-    <div>
-      <div class="label">Global: Require Alt key</div>
-      <div class="sub">Hold Alt + Wheel to change volume</div>
-    </div>
-    <label class="switch">
-      <input type="checkbox" id="modkey">
-      <span class="track"></span>
-    </label>
-  </div>
-
   <div class="toggle-row">
     <div>
       <div class="label">🌙 Night mode</div>
@@ -138,6 +124,7 @@
       <button data-p="0.00125">0.125</button>
       <button data-p="0.001875">0.1875</button>
       <button data-p="0.0025">0.25</button>
+      <button data-p="0.00375">0.375</button>
       <button data-p="0.005">0.5</button>
       <button data-p="0.01">1</button>
     </div>
@@ -157,20 +144,10 @@
       </label>
     </div>
 
-    <div class="toggle-row">
-      <div>
-        <div class="label">Require Alt key here</div>
-      </div>
-      <select id="sitealt" class="styled-select">
-        <option value="default">Use Global</option>
-        <option value="true">Always</option>
-        <option value="false">Never</option>
-      </select>
-    </div>
   </div>
 
-  <div class="hint">Settings apply to all sites and remain saved. If you turn off a site or override with Alt, it will only apply to that specific site.</div>
-  <div class="credit">Made by Raisul Sohan</div>
+  <div class="hint">Hold Alt + Wheel on any player to adjust volume. Settings apply to all sites and remain saved.</div>
+  <div class="credit">Made by <a href="https://raisulsohan.com/" target="_blank">Raisul Sohan</a></div>
   
   <script src="popup.js"></script>
 </body>

@@ -3,14 +3,12 @@
 
   const STEP_KEY     = "wvc:step";
   const MINVOL_KEY   = "wvc:minvol";
-  const MODKEY_KEY   = "wvc:modkey";
   const REVERSE_KEY  = "wvc:reverse";
   const DISABLED_KEY = "wvc:disabled";
   const NIGHT_KEY    = "wvc:night";      // global on/off
   const NIGHTVOL_KEY = "wvc:nightvol";   // the level night mode holds
   const HOST         = location.hostname.replace(/^www\./, "");
   const VOL_KEY      = "wvc:" + HOST;
-  const SITE_ALT_KEY = "wvc:alt:" + HOST;
 
   const DEFAULT_STEP     = 0.005;
   const DEFAULT_MINVOL   = 0.0025;
@@ -22,9 +20,7 @@
 
   let step = DEFAULT_STEP;
   let minVol = DEFAULT_MINVOL;
-  let modKeyRequired = false;
   let reverseWheel = false;
-  let siteAltOverride = null;
   let siteEnabled = true;
   let nightOn = false;
   let nightVol = DEFAULT_NIGHTVOL;
@@ -107,8 +103,9 @@
     const set = new Set([0, 1]);
     if (minVol > EPS && minVol < 1) {
       set.add(Math.round(minVol * 1000000) / 1000000);          // 0.25%
-      set.add(Math.round(minVol * 0.75 * 1000000) / 1000000);   // 0.1875%
-      set.add(Math.round(minVol * 0.5 * 1000000) / 1000000);    // 0.125%
+      set.add(Math.round(minVol * 1.5 * 1000000) / 1000000);   // 0.375%
+      set.add(Math.round(minVol * 0.75 * 1000000) / 1000000);  // 0.1875%
+      set.add(Math.round(minVol * 0.5 * 1000000) / 1000000);   // 0.125%
     }
     for (let i = 1; ; i++) {
       const x = Math.round(i * step * 1000000) / 1000000;
@@ -264,15 +261,13 @@
 
   try {
     chrome.storage.local.get(
-      [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY,
-       SITE_ALT_KEY, NIGHT_KEY, NIGHTVOL_KEY],
+      [STEP_KEY, MINVOL_KEY, REVERSE_KEY, DISABLED_KEY, VOL_KEY,
+       NIGHT_KEY, NIGHTVOL_KEY],
       (res) => {
         if (chrome.runtime.lastError || !res) return;
         if (typeof res[STEP_KEY] === "number") step = res[STEP_KEY];
         if (typeof res[MINVOL_KEY] === "number") minVol = res[MINVOL_KEY];
-        modKeyRequired = res[MODKEY_KEY] === true;
         reverseWheel = res[REVERSE_KEY] === true;
-        if (res[SITE_ALT_KEY] !== undefined) siteAltOverride = res[SITE_ALT_KEY];
         siteEnabled = !siteOff(res[DISABLED_KEY]);
         nightOn = res[NIGHT_KEY] === true;
         if (typeof res[NIGHTVOL_KEY] === "number") nightVol = res[NIGHTVOL_KEY];
@@ -296,11 +291,7 @@
     if (changes[MINVOL_KEY] && typeof changes[MINVOL_KEY].newValue === "number") {
       minVol = changes[MINVOL_KEY].newValue; rebuild = true;
     }
-    if (changes[MODKEY_KEY]) { modKeyRequired = changes[MODKEY_KEY].newValue === true; }
     if (changes[REVERSE_KEY]) { reverseWheel = changes[REVERSE_KEY].newValue === true; }
-    if (changes[SITE_ALT_KEY]) {
-      siteAltOverride = changes[SITE_ALT_KEY].newValue ?? null;
-    }
 
     let reapply = false;
     if (changes[DISABLED_KEY]) {
@@ -448,24 +439,21 @@
   function onWheel(e) {
     if (dead || !siteEnabled) return;
 
-    const requiresAlt = siteAltOverride !== null ? siteAltOverride : modKeyRequired;
-    if (requiresAlt && !e.altKey) return;
+    if (!e.altKey) return;
 
     let media = mediaAtPoint(e.clientX, e.clientY);
-    // Alt held + no media at cursor → fall back to any active media on the page
+    // Alt is always held — fall back to any active media on the page
     // (audio-only sites where the media element is hidden)
-    if (!media && e.altKey) media = findActiveMedia();
+    if (!media) media = findActiveMedia();
     if (!media) return;
 
     e.preventDefault();
     e.stopPropagation();
-    if (e.altKey) {
-      altWasUsed = true;
-      if (!media.paused && !media.ended) {
-        resumeTarget = media;
-        resumeArmedAt = Date.now();
-        resumeUntil = resumeArmedAt + RESUME_WINDOW;
-      }
+    altWasUsed = true;
+    if (!media.paused && !media.ended) {
+      resumeTarget = media;
+      resumeArmedAt = Date.now();
+      resumeUntil = resumeArmedAt + RESUME_WINDOW;
     }
 
     const held = effVol();

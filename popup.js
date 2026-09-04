@@ -2,7 +2,6 @@
 
 const STEP_KEY     = "wvc:step";
 const MINVOL_KEY   = "wvc:minvol";
-const MODKEY_KEY   = "wvc:modkey";
 const REVERSE_KEY  = "wvc:reverse";
 const DISABLED_KEY = "wvc:disabled";
 const NIGHT_KEY    = "wvc:night";
@@ -17,9 +16,7 @@ const stepVal   = document.getElementById("stepVal");
 const minEl     = document.getElementById("minvol");
 const minVal    = document.getElementById("minVal");
 const reverseEl = document.getElementById("reverse");
-const modEl     = document.getElementById("modkey");
 const siteEl    = document.getElementById("siteon");
-const siteAltEl = document.getElementById("sitealt");
 const hostEl    = document.getElementById("host");
 const nightEl   = document.getElementById("night");
 
@@ -100,7 +97,7 @@ nightEl.addEventListener("change", () => {
 
 // ---- Global Settings ----
 chrome.storage.local.get(
-  [STEP_KEY, MINVOL_KEY, MODKEY_KEY, REVERSE_KEY, NIGHT_KEY, NIGHTVOL_KEY],
+  [STEP_KEY, MINVOL_KEY, REVERSE_KEY, NIGHT_KEY, NIGHTVOL_KEY],
   (res) => {
     const sFrac = typeof res[STEP_KEY] === "number" ? res[STEP_KEY] : DEFAULT_STEP;
     const mFrac = typeof res[MINVOL_KEY] === "number" ? res[MINVOL_KEY] : DEFAULT_MINVOL;
@@ -113,7 +110,6 @@ chrome.storage.local.get(
     minVal.textContent = fmt(mPct);
 
     reverseEl.checked = res[REVERSE_KEY] === true;
-    modEl.checked = res[MODKEY_KEY] === true;
 
     state.nightOn = res[NIGHT_KEY] === true;
     if (typeof res[NIGHTVOL_KEY] === "number") state.nightVol = res[NIGHTVOL_KEY];
@@ -138,9 +134,6 @@ reverseEl.addEventListener("change", () => {
   chrome.storage.local.set({ [REVERSE_KEY]: reverseEl.checked });
 });
 
-modEl.addEventListener("change", () => {
-  chrome.storage.local.set({ [MODKEY_KEY]: modEl.checked });
-});
 
 // ---- Per-site Settings ----
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -151,27 +144,19 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     hostEl.textContent = "not available here";
     siteEl.checked = true;
     siteEl.disabled = true;
-    siteAltEl.disabled = true;
     return;
   }
 
   hostEl.textContent = host;
-  const SITE_ALT_KEY = "wvc:alt:" + host;
   const VOL_KEY = "wvc:" + host;
   state.host = host;
   state.volKey = VOL_KEY;
   renderQuick();
 
-  chrome.storage.local.get([DISABLED_KEY, SITE_ALT_KEY, VOL_KEY], (res) => {
+  chrome.storage.local.get([DISABLED_KEY, VOL_KEY], (res) => {
     // Enable/Disable
     const list = Array.isArray(res[DISABLED_KEY]) ? res[DISABLED_KEY] : [];
     siteEl.checked = list.indexOf(host) === -1;
-
-    // Per-site Alt Override
-    const altOverride = res[SITE_ALT_KEY];
-    if (altOverride === true) siteAltEl.value = "true";
-    else if (altOverride === false) siteAltEl.value = "false";
-    else siteAltEl.value = "default";
 
     if (typeof res[VOL_KEY] === "number") state.siteVol = res[VOL_KEY];
     renderQuick();
@@ -188,14 +173,5 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       }
       chrome.storage.local.set({ [DISABLED_KEY]: list });
     });
-  });
-
-  siteAltEl.addEventListener("change", () => {
-    let val = siteAltEl.value;
-    if (val === "default") {
-      chrome.storage.local.remove(SITE_ALT_KEY);
-    } else {
-      chrome.storage.local.set({ [SITE_ALT_KEY]: val === "true" });
-    }
   });
 });
