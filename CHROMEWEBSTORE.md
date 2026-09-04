@@ -79,6 +79,9 @@ Chrome Web Store review requires an explicit, plain-English justification for ea
 
 ## Privacy & Data Use Disclosure (For Developer Dashboard)
 
+**Privacy Policy URL for Dashboard:**  
+`https://github.com/raisulsohan/QuietScroll/blob/main/PRIVACY.md`
+
 **Does the extension collect user data?**  
 **NO** — QuietScroll collects zero user data.
 

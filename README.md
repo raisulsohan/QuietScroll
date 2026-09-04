@@ -91,6 +91,10 @@ Requires a Chromium-based browser, version 111 or newer (QuietScroll relies on
 4. Click **Load unpacked**
 5. Select the QuietScroll folder
 
+## Privacy Policy
+
+QuietScroll does not collect or transmit any user data. Read our full [Privacy Policy](PRIVACY.md).
+
 ## Author
 
 Made by [Raisul Sohan](https://raisulsohan.com/)
